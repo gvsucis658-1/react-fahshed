@@ -1,12 +1,12 @@
-var express = require("express");
-var router = express.Router();
-const db = require("../firebase");
+const express = require("express");
+const router = express.Router();
+const db = require("../config/firebase");
 const eventsRef = db.collection("events");
 
 // GET all events
 router.get("/", async (req, res) => {
   try {
-    const snapshot = await eventsRef.get();
+    const snapshot = await eventsRef.orderBy("createdAt", "asc").get();
     const events = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     res.json(events);
   } catch (err) {

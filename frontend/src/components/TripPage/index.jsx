@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { ReactFlow, addEdge, Background, Handle } from "@xyflow/react";
+import React, { useEffect, useState } from "react";
+import { ReactFlow, Background, Handle } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 function EventNode({ data }) {
@@ -21,19 +21,47 @@ function EventNode({ data }) {
   );
 }
 
+const API_BASE = "http://localhost:3000/events";
+
+function EventItem({ event, onUpdate, onDelete }) {
+  const [title, setTitle] = useState(event.title);
+
+  useEffect(() => {
+    setTitle(event.title);
+  }, [event.title]);
+
+  return (
+    <li key={event.id} style={{ marginBottom: "10px" }}>
+      <input
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <button
+        onClick={() => onUpdate(event.id, title)}
+        style={{ marginLeft: "5px" }}
+      >
+        Update
+      </button>
+      <button onClick={() => onDelete(event.id)} style={{ marginLeft: "5px" }}>
+        Delete
+      </button>
+    </li>
+  );
+}
+
 function TripPage() {
+  const [events, setEvents] = useState([]);
+
   const getRandomColor = () =>
     "#" + Math.floor(Math.random() * 16777215).toString(16);
 
-  const [events, setEvents] = useState([
-    {
-      id: "1",
-      title: "Event 1",
-      description: "Description for Event 1",
-      position: { x: 50, y: 50 },
-      color: getRandomColor(),
-    },
-  ]);
+  useEffect(() => {
+    fetch(API_BASE)
+      .then((res) => res.json())
+      .then((data) => setEvents(data))
+      .catch((err) => console.error("Error fetching events:", err));
+  }, []);
 
   const nodes = events.map((event) => ({
     id: event.id,
@@ -42,15 +70,15 @@ function TripPage() {
     position: event.position,
   }));
 
-  const [edges, setEdges] = useState([]);
+  const edges = events.slice(0, events.length - 1).map((event, index) => ({
+    id: `e-${event.id}-${events[index + 1].id}`,
+    source: event.id,
+    target: events[index + 1].id,
+    type: "default",
+    markerEnd: { type: "arrowclosed" },
+  }));
 
-  const addEvent = () => {
-    // Calculate newId using the last event's id if available.
-    const newId =
-      events.length > 0
-        ? (Number(events[events.length - 1].id) + 1).toString()
-        : "1";
-
+  const addEvent = async () => {
     const newPosition =
       events.length > 0
         ? {
@@ -60,108 +88,82 @@ function TripPage() {
         : { x: 50, y: 50 };
 
     const newEvent = {
-      id: newId,
-      title: `Event ${newId}`,
+      title: `New Event`,
       description: "",
       position: newPosition,
       color: getRandomColor(),
+      createdAt: new Date().toISOString(),
     };
 
-    let newEdge = null;
-    if (events.length > 0) {
-      const lastEvent = events[events.length - 1];
-      newEdge = {
-        id: `e-${lastEvent.id}-${newId}`,
-        source: lastEvent.id,
-        target: newId,
-        type: "default",
-        // style: { stroke: "#222", strokeWidth: 2 },
-        markerEnd: {
-          type: "arrowclosed",
-          // color: "#222",
-          // width: 15,
-          // height: 15,
-        },
-      };
-    }
-
-    setEvents([...events, newEvent]);
-    if (newEdge) {
-      setEdges([...edges, newEdge]);
+    try {
+      const res = await fetch(API_BASE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newEvent),
+      });
+      const created = await res.json();
+      setEvents([...events, created]);
+    } catch (err) {
+      console.error("Failed to add event:", err);
     }
   };
 
-  const updateEvent = (id, newTitle) => {
-    const updatedEvents = events.map((event) =>
-      event.id === id ? { ...event, title: newTitle } : event
-    );
-    setEvents(updatedEvents);
+  const updateEvent = async (id, newTitle) => {
+    try {
+      await fetch(`${API_BASE}/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+
+      setEvents((prev) =>
+        prev.map((event) =>
+          event.id === id ? { ...event, title: newTitle } : event
+        )
+      );
+    } catch (err) {
+      console.error("Update failed:", err);
+    }
   };
 
-  const deleteEvent = (id) => {
-    const index = events.findIndex((event) => event.id === id);
-    const newEvents = events.filter((event) => event.id !== id);
-    let newEdges = edges.filter(
-      (edge) => edge.source !== id && edge.target !== id
-    );
-
-    if (index > 0 && index < events.length - 1) {
-      const prevEvent = events[index - 1];
-      const nextEvent = events[index + 1];
-      const newEdge = {
-        id: `e-${prevEvent.id}-${nextEvent.id}`,
-        source: prevEvent.id,
-        target: nextEvent.id,
-        type: "default",
-        // style: { stroke: "#222", strokeWidth: 2 },
-        markerEnd: {
-          type: "arrowclosed",
-          // color: "#222",
-          // width: 15,
-          // height: 15,
-        },
-      };
-      newEdges = [...newEdges, newEdge];
+  const deleteEvent = async (id) => {
+    try {
+      await fetch(`${API_BASE}/${id}`, { method: "DELETE" });
+      const newEvents = events.filter((event) => event.id !== id);
+      setEvents(newEvents);
+    } catch (err) {
+      console.error("Delete failed:", err);
     }
-
-    setEvents(newEvents);
-    setEdges(newEdges);
   };
 
   return (
-    <div>
-      <div style={{ height: 200 }}>
+    <div style={{ padding: "10px" }}>
+      <div
+        style={{ height: 300, border: "1px solid black", borderRadius: "8px" }}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
           nodeTypes={{ eventNode: EventNode }}
           onNodesChange={() => {}}
           onEdgesChange={() => {}}
-          onConnect={(params) => setEdges((eds) => addEdge(params, eds))}
           fitView
         >
           <Background />
         </ReactFlow>
       </div>
 
-      <div style={{ padding: "10px" }}>
+      <div>
         <h2>Event List</h2>
         <button onClick={addEvent}>Add Event</button>
         <ul style={{ listStyle: "none", padding: 0 }}>
           {events.map((event) => (
-            <li key={event.id} style={{ marginBottom: "10px" }}>
-              <input
-                type="text"
-                value={event.title}
-                onChange={(e) => updateEvent(event.id, e.target.value)}
-              />
-              <button
-                onClick={() => deleteEvent(event.id)}
-                style={{ marginLeft: "5px" }}
-              >
-                Delete
-              </button>
-            </li>
+            <EventItem
+              key={event.id}
+              event={event}
+              onUpdate={updateEvent}
+              onDelete={deleteEvent}
+            />
           ))}
         </ul>
       </div>
